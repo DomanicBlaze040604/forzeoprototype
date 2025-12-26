@@ -18,6 +18,10 @@ import Topic from "./pages/Topic";
 import Model from "./pages/Model";
 import WarRoom from "./pages/WarRoom";
 import Citations from "./pages/Citations";
+import GapAnalysis from "./pages/GapAnalysis";
+import LLMTraffic from "./pages/LLMTraffic";
+import ContentGen from "./pages/ContentGen";
+import Competitors from "./pages/Competitors";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -85,6 +89,10 @@ const App = () => (
               <Route path="/model" element={<ProtectedRoute><Model /></ProtectedRoute>} />
               <Route path="/citation" element={<ProtectedRoute><Citations /></ProtectedRoute>} />
               <Route path="/sources" element={<ProtectedRoute><Sources /></ProtectedRoute>} />
+              <Route path="/competitors" element={<ProtectedRoute><Competitors /></ProtectedRoute>} />
+              <Route path="/gap-analysis" element={<ProtectedRoute><GapAnalysis /></ProtectedRoute>} />
+              <Route path="/llm-traffic" element={<ProtectedRoute><LLMTraffic /></ProtectedRoute>} />
+              <Route path="/content-gen" element={<ProtectedRoute><ContentGen /></ProtectedRoute>} />
               <Route path="/improve" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
               <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
               <Route path="*" element={<NotFound />} />

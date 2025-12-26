@@ -7,6 +7,84 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const DATAFORSEO_API_URL = "https://api.dataforseo.com/v3";
+
+// DataForSEO Service with balance checking
+class DataForSEOService {
+  private authHeader: string | null = null;
+  private balance: number | null = null;
+  private lastBalanceCheck: number = 0;
+
+  constructor() {
+    const base64Auth = Deno.env.get("DATAFORSEO_AUTH");
+    if (base64Auth) {
+      this.authHeader = `Basic ${base64Auth}`;
+    }
+  }
+
+  isConfigured(): boolean {
+    return this.authHeader !== null;
+  }
+
+  async checkBalance(): Promise<{ available: boolean; balance: number }> {
+    if (!this.authHeader) return { available: false, balance: 0 };
+
+    const now = Date.now();
+    if (this.balance !== null && now - this.lastBalanceCheck < 60000) {
+      return { available: this.balance > 0, balance: this.balance };
+    }
+
+    try {
+      const response = await fetch(`${DATAFORSEO_API_URL}/appendix/user_data`, {
+        method: "GET",
+        headers: { "Authorization": this.authHeader, "Content-Type": "application/json" },
+      });
+      if (!response.ok) return { available: false, balance: 0 };
+      const data = await response.json();
+      this.balance = data?.tasks?.[0]?.result?.[0]?.money?.balance || 0;
+      this.lastBalanceCheck = now;
+      return { available: this.balance > 0, balance: this.balance };
+    } catch {
+      return { available: false, balance: 0 };
+    }
+  }
+
+  async llmScraperTaskPost(prompts: Array<{ prompt: string; engine: string }>) {
+    return this.post("/content_generation/llm_scraper/task_post", prompts);
+  }
+
+  async llmScraperTaskGet(taskId: string) {
+    return this.get(`/content_generation/llm_scraper/task_get/${taskId}`);
+  }
+
+  async serpGoogleOrganicLive(keyword: string) {
+    return this.post("/serp/google/organic/live/advanced", [{
+      keyword, location_code: 2840, language_code: "en", device: "desktop",
+    }]);
+  }
+
+  private async post(endpoint: string, data: any[]) {
+    if (!this.authHeader) throw new Error("Not configured");
+    const response = await fetch(`${DATAFORSEO_API_URL}${endpoint}`, {
+      method: "POST",
+      headers: { "Authorization": this.authHeader, "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) throw new Error(`API error: ${response.status}`);
+    return response.json();
+  }
+
+  private async get(endpoint: string) {
+    if (!this.authHeader) throw new Error("Not configured");
+    const response = await fetch(`${DATAFORSEO_API_URL}${endpoint}`, {
+      method: "GET",
+      headers: { "Authorization": this.authHeader, "Content-Type": "application/json" },
+    });
+    if (!response.ok) throw new Error(`API error: ${response.status}`);
+    return response.json();
+  }
+}
+
 interface AnalyzeRequest {
   prompt: string;
   brand: string;
@@ -216,12 +294,14 @@ function fallbackAnalysis(response: string, brand: string, competitors: string[]
 }
 
 // Simulate what an AI model would respond to this prompt with persona support
+// Uses DataForSEO LLM Scraper when available, falls back to Groq simulation
 async function queryAIModel(
   prompt: string,
   brand: string,
   competitors: string[],
   modelName: string,
-  persona: string = "general"
+  persona: string = "general",
+  dataForSEOService?: DataForSEOService
 ): Promise<{
   response: string;
   brandMentioned: boolean;
@@ -230,55 +310,137 @@ async function queryAIModel(
   reasoning: string;
   rank: number | null;
   competitorsMentioned: string[];
+  source: string;
 }> {
-  const apiKey = Deno.env.get('GROQ_API_KEY');
-  if (!apiKey) {
-    throw new Error('GROQ_API_KEY is not configured');
+  // Map model names to DataForSEO engine names
+  const engineMap: Record<string, string> = {
+    "ChatGPT": "chatgpt",
+    "Gemini": "gemini",
+    "Perplexity": "perplexity",
+    "Claude": "claude",
+  };
+
+  let aiResponse = "";
+  let source = "groq_simulation";
+
+  // Try DataForSEO first if available
+  if (dataForSEOService) {
+    try {
+      const engine = engineMap[modelName] || "chatgpt";
+      console.log(`Attempting DataForSEO LLM Scraper for ${modelName} (${engine})...`);
+      
+      // Use task_post and poll for results with shorter timeout for better UX
+      const postResult = await dataForSEOService.llmScraperTaskPost([{
+        prompt,
+        engine,
+      }]);
+      
+      const taskId = postResult?.tasks?.[0]?.id;
+      const taskCost = postResult?.tasks?.[0]?.cost;
+      console.log(`DataForSEO task created: ${taskId}, cost: $${taskCost}`);
+      
+      if (taskId) {
+        // Poll for result with shorter timeout (20 seconds max for better UX)
+        // DataForSEO LLM Scraper can take 30-60 seconds, so we'll check a few times
+        // and fall back to Groq if it's taking too long
+        for (let i = 0; i < 10; i++) {
+          await new Promise(r => setTimeout(r, 2000)); // 2 second intervals
+          
+          try {
+            const getResult = await dataForSEOService.llmScraperTaskGet(taskId);
+            const statusCode = getResult?.tasks?.[0]?.status_code;
+            
+            if (statusCode === 20000) {
+              const result = getResult.tasks[0].result?.[0];
+              if (result?.response) {
+                aiResponse = result.response;
+                source = "dataforseo_llm_scraper";
+                console.log(`Got real ${modelName} response via DataForSEO (${result.response.length} chars)`);
+                break;
+              }
+            } else if (statusCode >= 40000) {
+              // Task failed
+              console.log(`DataForSEO task failed with status: ${statusCode}`);
+              break;
+            }
+            // Status 20100 = "Task In Queue", keep polling
+          } catch (pollError) {
+            console.log(`Poll error: ${pollError.message}`);
+          }
+        }
+        
+        // If we didn't get a response, log that we're falling back
+        if (!aiResponse) {
+          console.log(`DataForSEO task ${taskId} still processing, falling back to Groq for faster response`);
+        }
+      }
+    } catch (error) {
+      console.log(`DataForSEO LLM Scraper error for ${modelName}: ${error.message}`);
+    }
   }
 
-  // Use persona-specific system prompt if available
-  const personaContext = PERSONA_PROMPTS[persona] || "";
-  const systemPrompt = `You are simulating how ${modelName} would respond to a user query.
-${personaContext ? `The user has this persona: ${personaContext}` : ""}
-Respond naturally as if you ARE ${modelName} answering this question directly.
-Keep your response focused, helpful, and around 150-200 words.
-If the query is about recommendations or "best" options, provide a list of options with brief explanations.`;
-
-  try {
-    const aiResponse = await callLLM(prompt, systemPrompt);
-
-    if (!aiResponse) {
-      console.error(`AI query failed for ${modelName}`);
+  // Fallback to Groq simulation if DataForSEO didn't work
+  if (!aiResponse) {
+    const apiKey = Deno.env.get('GROQ_API_KEY');
+    if (!apiKey) {
       return {
         response: `Unable to get response from ${modelName}`,
         brandMentioned: false,
         sentiment: null,
         accuracy: 0,
-        reasoning: "Model query failed",
+        reasoning: "No API key configured",
         rank: null,
         competitorsMentioned: [],
+        source: "error",
       };
     }
 
-    // Use Judge-LLM for analysis
-    const analysis = await judgeLLMAnalysis(aiResponse, brand, competitors, prompt);
+    const personaContext = PERSONA_PROMPTS[persona] || "";
+    const systemPrompt = `You are simulating how ${modelName} would respond to a user query.
+${personaContext ? `The user has this persona: ${personaContext}` : ""}
+Respond naturally as if you ARE ${modelName} answering this question directly.
+Keep your response focused, helpful, and around 150-200 words.
+If the query is about recommendations or "best" options, provide a list of options with brief explanations.`;
 
+    try {
+      aiResponse = await callLLM(prompt, systemPrompt);
+      source = "groq_simulation";
+    } catch (error) {
+      console.error(`Error querying ${modelName}:`, error);
+      return {
+        response: `Error getting response from ${modelName}`,
+        brandMentioned: false,
+        sentiment: null,
+        accuracy: 0,
+        reasoning: "Error occurred during analysis",
+        rank: null,
+        competitorsMentioned: [],
+        source: "error",
+      };
+    }
+  }
+
+  if (!aiResponse) {
     return {
-      response: aiResponse,
-      ...analysis,
-    };
-  } catch (error) {
-    console.error(`Error querying ${modelName}:`, error);
-    return {
-      response: `Error getting response from ${modelName}`,
+      response: `Unable to get response from ${modelName}`,
       brandMentioned: false,
       sentiment: null,
       accuracy: 0,
-      reasoning: "Error occurred during analysis",
+      reasoning: "Model query failed",
       rank: null,
       competitorsMentioned: [],
+      source: "error",
     };
   }
+
+  // Use Judge-LLM for analysis
+  const analysis = await judgeLLMAnalysis(aiResponse, brand, competitors, prompt);
+
+  return {
+    response: aiResponse,
+    ...analysis,
+    source,
+  };
 }
 
 serve(async (req) => {
@@ -320,8 +482,69 @@ serve(async (req) => {
 
     console.log(`Analyzing prompt: "${prompt}" for brand: "${brand}" with persona: "${persona}"`);
 
-    // Call SERP search in parallel
-    const serpPromise = callSerpSearch(prompt, brand, competitors);
+    // Initialize DataForSEO service and check balance
+    const dataForSEO = new DataForSEOService();
+    let useDataForSEO = false;
+    let dataForSEOBalance = 0;
+
+    if (dataForSEO.isConfigured()) {
+      const balanceCheck = await dataForSEO.checkBalance();
+      useDataForSEO = balanceCheck.available;
+      dataForSEOBalance = balanceCheck.balance;
+      console.log(`DataForSEO: configured=${true}, available=${useDataForSEO}, balance=$${dataForSEOBalance.toFixed(3)}`);
+    } else {
+      console.log("DataForSEO not configured, using Groq simulation");
+    }
+
+    // Call SERP search in parallel - use DataForSEO SERP if available (it's faster - live endpoint)
+    let serpPromise;
+    if (useDataForSEO) {
+      serpPromise = dataForSEO.serpGoogleOrganicLive(prompt)
+        .then(result => {
+          // Transform DataForSEO SERP result to our format
+          const organic = result?.tasks?.[0]?.result?.[0]?.items?.filter((i: any) => i.type === "organic") || [];
+          const brandLower = brand.toLowerCase();
+          let brandMentioned = false;
+          let brandPosition: number | null = null;
+          
+          for (const item of organic) {
+            const text = `${item.title} ${item.description}`.toLowerCase();
+            if (text.includes(brandLower)) {
+              brandMentioned = true;
+              brandPosition = item.rank_absolute;
+              break;
+            }
+          }
+          
+          return {
+            organic: organic.slice(0, 5).map((item: any) => ({
+              title: item.title,
+              link: item.url,
+              snippet: item.description,
+              position: item.rank_absolute,
+            })),
+            aiOverview: null,
+            brandMentioned,
+            brandPosition,
+            competitors: competitors.map(c => {
+              const compLower = c.toLowerCase();
+              for (const item of organic) {
+                const text = `${item.title} ${item.description}`.toLowerCase();
+                if (text.includes(compLower)) {
+                  return { name: c, position: item.rank_absolute };
+                }
+              }
+              return null;
+            }).filter(Boolean),
+          };
+        })
+        .catch(e => {
+          console.log("DataForSEO SERP failed, falling back to Serper:", e.message);
+          return callSerpSearch(prompt, brand, competitors);
+        });
+    } else {
+      serpPromise = callSerpSearch(prompt, brand, competitors);
+    }
 
     // Query AI for each model to get realistic responses with Judge-LLM analysis
     // Also insert analysis_jobs for War Room real-time tracking
@@ -348,7 +571,15 @@ serve(async (req) => {
           }
         }
 
-        const result = await queryAIModel(prompt, brand, competitors, modelName, persona);
+        // Pass DataForSEO service if available
+        const result = await queryAIModel(
+          prompt, 
+          brand, 
+          competitors, 
+          modelName, 
+          persona,
+          useDataForSEO ? dataForSEO : undefined
+        );
         
         // Update analysis job with results
         if (supabaseClient && jobId) {
@@ -380,6 +611,7 @@ serve(async (req) => {
           full_response: result.response,
           citations: [],
           competitors_in_response: result.competitorsMentioned,
+          data_source: result.source,
         };
       })
     );
@@ -473,6 +705,13 @@ serve(async (req) => {
       recommendations,
       serp_data,
       persona_used: persona,
+      data_source: {
+        primary: useDataForSEO ? "dataforseo" : "groq_serper",
+        dataforseo_balance: dataForSEOBalance,
+        dataforseo_available: useDataForSEO,
+        models_using_dataforseo: modelResults.filter(r => r.data_source === "dataforseo_llm_scraper").length,
+        models_using_fallback: modelResults.filter(r => r.data_source === "groq_simulation").length,
+      },
     };
 
     console.log("Analysis complete:", JSON.stringify({

@@ -14,7 +14,12 @@ import {
   HelpCircle,
   Radio,
   PanelLeftClose,
-  PanelLeft
+  PanelLeft,
+  Users,
+  Globe,
+  FileText,
+  Sparkles,
+  Target
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ForzeoLogo } from "@/components/ForzeoLogo";
@@ -33,20 +38,22 @@ interface NavSection {
 const navSections: NavSection[] = [
   {
     items: [
-      { icon: Home, label: "Home", href: "/" },
-      { icon: Radio, label: "War Room", href: "/war-room" },
-      { icon: Search, label: "Search", href: "/search" },
-      { icon: Inbox, label: "Inbox", href: "/inbox" },
+      { icon: Home, label: "Dashboard", href: "/" },
+      { icon: Users, label: "Competitors", href: "/competitors" },
+      { icon: Globe, label: "Sources", href: "/sources" },
+      { icon: Search, label: "Prompts", href: "/search" },
+      { icon: Target, label: "Gap Analysis", href: "/gap-analysis" },
+      { icon: BarChart3, label: "LLM Traffic", href: "/llm-traffic" },
+      { icon: Sparkles, label: "Content Gen", href: "/content-gen" },
     ],
   },
   {
-    title: "Metrics",
+    title: "More",
     items: [
-      { icon: BarChart3, label: "Industry", href: "/industry" },
-      { icon: MessageSquare, label: "Topic", href: "/topic" },
-      { icon: Cpu, label: "Model", href: "/model" },
-      { icon: Link2, label: "Citation", href: "/citation" },
-      { icon: TrendingUp, label: "Improve", href: "/improve" },
+      { icon: Radio, label: "War Room", href: "/war-room" },
+      { icon: Inbox, label: "Alerts", href: "/inbox" },
+      { icon: Link2, label: "Citations", href: "/citation" },
+      { icon: TrendingUp, label: "Reports", href: "/improve" },
     ],
   },
 ];

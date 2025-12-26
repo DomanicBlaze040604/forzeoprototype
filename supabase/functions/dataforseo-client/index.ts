@@ -10,11 +10,6 @@ const corsHeaders = {
 // DataForSEO API Configuration
 const DATAFORSEO_API_URL = "https://api.dataforseo.com/v3";
 
-interface DataForSEOCredentials {
-  login: string;
-  password: string;
-}
-
 interface TaskPostRequest {
   endpoint: string;
   data: any[];
@@ -25,30 +20,33 @@ interface TaskGetRequest {
   taskId: string;
 }
 
-// Get DataForSEO credentials from environment
-function getCredentials(): DataForSEOCredentials {
+// Get DataForSEO auth header from environment
+// Supports DATAFORSEO_AUTH (base64) or fallback to DATAFORSEO_LOGIN + DATAFORSEO_PASSWORD
+function getAuthHeader(): string {
+  // First try the base64 encoded auth (preferred)
+  const base64Auth = Deno.env.get("DATAFORSEO_AUTH");
+  if (base64Auth) {
+    return `Basic ${base64Auth}`;
+  }
+  
+  // Fallback to separate login/password
   const login = Deno.env.get("DATAFORSEO_LOGIN");
   const password = Deno.env.get("DATAFORSEO_PASSWORD");
   
-  if (!login || !password) {
-    throw new Error("DataForSEO credentials not configured");
+  if (login && password) {
+    const encoded = btoa(`${login}:${password}`);
+    return `Basic ${encoded}`;
   }
   
-  return { login, password };
-}
-
-// Create Basic Auth header
-function getAuthHeader(creds: DataForSEOCredentials): string {
-  const encoded = btoa(`${creds.login}:${creds.password}`);
-  return `Basic ${encoded}`;
+  throw new Error("DataForSEO credentials not configured. Set DATAFORSEO_AUTH or DATAFORSEO_LOGIN + DATAFORSEO_PASSWORD");
 }
 
 // DataForSEO API Client
 class DataForSEOClient {
   private authHeader: string;
   
-  constructor(creds: DataForSEOCredentials) {
-    this.authHeader = getAuthHeader(creds);
+  constructor(authHeader: string) {
+    this.authHeader = authHeader;
   }
   
   // LLM Scraper - Task Post
@@ -193,22 +191,22 @@ serve(async (req) => {
 
     const { action, ...params } = await req.json();
     
-    let creds: DataForSEOCredentials;
+    let authHeader: string;
     try {
-      creds = getCredentials();
+      authHeader = getAuthHeader();
     } catch (e) {
       // Return mock data if credentials not configured
       return new Response(
         JSON.stringify({ 
           error: "DataForSEO not configured",
           mock: true,
-          message: "Using simulated data. Configure DATAFORSEO_LOGIN and DATAFORSEO_PASSWORD to use real API."
+          message: "Using simulated data. Configure DATAFORSEO_AUTH to use real API."
         }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
     
-    const client = new DataForSEOClient(creds);
+    const client = new DataForSEOClient(authHeader);
     let result;
     
     switch (action) {
