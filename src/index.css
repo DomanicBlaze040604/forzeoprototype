@@ -1,0 +1,351 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================================
+   FORZEO DESIGN SYSTEM
+   Enterprise AI Search Analytics Platform
+   Philosophy: Calm confidence, data-first, trust > novelty
+   ============================================================================ */
+
+@layer base {
+  :root {
+    /* Light mode - minimal, clean */
+    --background: 210 20% 98%;
+    --foreground: 220 20% 10%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 220 20% 10%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 20% 10%;
+
+    --primary: 217 91% 60%; /* Authority Blue #3B82F6 */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 220 20% 10%;
+
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 10% 46%;
+
+    --accent: 217 91% 60%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%; /* Error Red #EF4444 */
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 71% 45%; /* Verification Green #22C55E */
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%; /* Risk Amber #F59E0B */
+    --warning-foreground: 0 0% 100%;
+
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 217 91% 60%;
+
+    --radius: 0.625rem; /* 10px */
+
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 220 10% 40%;
+    --sidebar-primary: 217 91% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 14% 96%;
+    --sidebar-accent-foreground: 220 20% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 217 91% 60%;
+  }
+
+  .dark {
+    /* FORZEO Dark Theme - Primary */
+    /* Deep Charcoal / Near-Black: #0B0F14 */
+    --background: 216 33% 6%;
+    --foreground: 210 20% 95%;
+
+    /* Soft Graphite: #141A22 */
+    --card: 216 27% 11%;
+    --card-foreground: 210 20% 95%;
+
+    /* Muted Slate: #1C2430 */
+    --popover: 216 27% 11%;
+    --popover-foreground: 210 20% 95%;
+
+    /* Authority Blue #3B82F6 */
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Muted Slate for secondary */
+    --secondary: 216 24% 15%;
+    --secondary-foreground: 210 20% 95%;
+
+    --muted: 216 24% 15%;
+    --muted-foreground: 215 16% 50%;
+
+    /* Intelligence Teal #2DD4BF */
+    --accent: 168 76% 50%;
+    --accent-foreground: 216 33% 6%;
+
+    /* Error Red #EF4444 */
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Verification Green #22C55E */
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+
+    /* Risk Amber #F59E0B */
+    --warning: 38 92% 50%;
+    --warning-foreground: 216 33% 6%;
+
+    /* Borders - subtle */
+    --border: 216 20% 18%;
+    --input: 216 20% 18%;
+    --ring: 217 91% 60%;
+
+    /* Sidebar */
+    --sidebar-background: 216 30% 8%;
+    --sidebar-foreground: 215 16% 55%;
+    --sidebar-primary: 217 91% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 216 24% 15%;
+    --sidebar-accent-foreground: 210 20% 95%;
+    --sidebar-border: 216 20% 14%;
+    --sidebar-ring: 217 91% 60%;
+
+    /* Chart colors - data-driven accents */
+    --chart-authority: 217 91% 60%;    /* Authority Blue #3B82F6 */
+    --chart-teal: 168 76% 50%;         /* Intelligence Teal #2DD4BF */
+    --chart-green: 142 71% 45%;        /* Verification Green #22C55E */
+    --chart-amber: 38 92% 50%;         /* Risk Amber #F59E0B */
+    --chart-red: 0 84% 60%;            /* Error Red #EF4444 */
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    letter-spacing: -0.006em;
+  }
+
+  /* Typography hierarchy */
+  h1 {
+    @apply text-[28px] font-semibold tracking-tight;
+  }
+
+  h2 {
+    @apply text-[18px] font-medium tracking-tight;
+  }
+
+  h3 {
+    @apply text-[16px] font-medium;
+  }
+
+  /* Crisp numbers */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  /* Enterprise card style */
+  .fz-card {
+    @apply bg-card border border-border rounded-[10px];
+    box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  }
+
+  .fz-card-elevated {
+    @apply bg-card border border-border rounded-[10px];
+    box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  }
+
+  /* Metric display */
+  .fz-metric {
+    @apply text-[32px] font-semibold tracking-tight tabular-nums;
+  }
+
+  .fz-metric-label {
+    @apply text-[12px] font-medium text-muted-foreground uppercase tracking-wide;
+  }
+
+  /* Delta indicators */
+  .fz-delta-positive {
+    @apply text-[#22C55E] text-[13px] font-medium;
+  }
+
+  .fz-delta-negative {
+    @apply text-[#EF4444] text-[13px] font-medium;
+  }
+
+  .fz-delta-neutral {
+    @apply text-muted-foreground text-[13px] font-medium;
+  }
+
+  /* Status badges */
+  .fz-badge {
+    @apply inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium;
+  }
+
+  .fz-badge-verified {
+    @apply bg-[#22C55E]/10 text-[#22C55E] border border-[#22C55E]/20;
+  }
+
+  .fz-badge-partial {
+    @apply bg-[#F59E0B]/10 text-[#F59E0B] border border-[#F59E0B]/20;
+  }
+
+  .fz-badge-hallucinated {
+    @apply bg-[#EF4444]/10 text-[#EF4444] border border-[#EF4444]/20;
+  }
+
+  .fz-badge-info {
+    @apply bg-[#3B82F6]/10 text-[#3B82F6] border border-[#3B82F6]/20;
+  }
+
+  /* Table styles - Stripe-like */
+  .fz-table {
+    @apply w-full text-[13px];
+  }
+
+  .fz-table thead {
+    @apply border-b border-border;
+  }
+
+  .fz-table th {
+    @apply px-4 py-3 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wider;
+  }
+
+  .fz-table td {
+    @apply px-4 py-3 border-b border-border/50;
+  }
+
+  .fz-table tbody tr {
+    @apply transition-colors duration-150;
+  }
+
+  .fz-table tbody tr:hover {
+    @apply bg-muted/30;
+  }
+
+  /* Section headers */
+  .fz-section-header {
+    @apply text-[16px] font-medium text-foreground mb-4;
+  }
+
+  /* Meta labels */
+  .fz-meta {
+    @apply text-[11px] text-muted-foreground;
+  }
+
+  /* Subtle trend arrow */
+  .fz-trend-up {
+    @apply inline-flex items-center text-[#22C55E];
+  }
+
+  .fz-trend-down {
+    @apply inline-flex items-center text-[#EF4444];
+  }
+
+  /* Input fields */
+  .fz-input {
+    @apply bg-background border border-border rounded-lg px-3 py-2 text-[14px];
+    @apply focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary;
+    @apply transition-all duration-150;
+  }
+
+  /* Buttons */
+  .fz-button-primary {
+    @apply bg-primary text-primary-foreground px-4 py-2 rounded-lg text-[14px] font-medium;
+    @apply hover:bg-primary/90 transition-colors duration-150;
+  }
+
+  .fz-button-secondary {
+    @apply bg-secondary text-secondary-foreground px-4 py-2 rounded-lg text-[14px] font-medium;
+    @apply hover:bg-secondary/80 transition-colors duration-150;
+  }
+
+  .fz-button-ghost {
+    @apply text-muted-foreground px-4 py-2 rounded-lg text-[14px] font-medium;
+    @apply hover:bg-muted hover:text-foreground transition-colors duration-150;
+  }
+}
+
+@layer utilities {
+  /* Functional transitions only */
+  .fz-transition {
+    @apply transition-all duration-150 ease-out;
+  }
+
+  /* Subtle fade + translate */
+  .fz-animate-in {
+    animation: fzFadeIn 0.2s ease-out forwards;
+  }
+
+  /* No decorative animations */
+  @keyframes fzFadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* Sparkline container */
+  .fz-sparkline {
+    @apply h-8 w-24;
+  }
+
+  /* Data density helper */
+  .fz-dense {
+    @apply text-[13px] leading-tight;
+  }
+}
+
+/* Scrollbar styling for dark mode */
+.dark {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(216 20% 25%) transparent;
+}
+
+.dark::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.dark::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dark::-webkit-scrollbar-thumb {
+  background: hsl(216 20% 25%);
+  border-radius: 4px;
+}
+
+.dark::-webkit-scrollbar-thumb:hover {
+  background: hsl(216 20% 30%);
+}
+
+/* Remove focus outlines for mouse users, keep for keyboard */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+:focus-visible {
+  @apply outline-none ring-2 ring-primary/50 ring-offset-2 ring-offset-background;
+}
