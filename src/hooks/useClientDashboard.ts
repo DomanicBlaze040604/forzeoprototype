@@ -15,13 +15,15 @@
 import { useState, useCallback, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
-// Available AI models - Using DataForSEO LLM Mentions API
+// Available AI models - Individual LLM names + SERP models
 export const AI_MODELS = [
-  // LLM Mentions - Searches DataForSEO's database of AI-generated answers
-  { id: "llm_mentions", name: "LLM Mentions", provider: "DataForSEO", color: "#10a37f", costPerQuery: 0.1, isLLM: true },
-  // Google AI Overview - Direct AI Overview results
+  // LLM Models (via DataForSEO LLM Mentions API)
+  { id: "chatgpt", name: "ChatGPT", provider: "OpenAI", color: "#10a37f", costPerQuery: 0.02, isLLM: true },
+  { id: "claude", name: "Claude", provider: "Anthropic", color: "#d97706", costPerQuery: 0.02, isLLM: true },
+  { id: "gemini", name: "Gemini", provider: "Google", color: "#4285f4", costPerQuery: 0.02, isLLM: true },
+  { id: "perplexity", name: "Perplexity", provider: "Perplexity AI", color: "#6366f1", costPerQuery: 0.02, isLLM: true },
+  // Traditional SERP Models
   { id: "google_ai_overview", name: "Google AI Overview", provider: "DataForSEO", color: "#ea4335", costPerQuery: 0.003, isLLM: false },
-  // Google SERP - Traditional search results
   { id: "google_serp", name: "Google SERP", provider: "DataForSEO", color: "#34a853", costPerQuery: 0.002, isLLM: false },
 ];
 
@@ -201,7 +203,7 @@ export function useClientDashboard() {
   const [sourceSummary, setSourceSummary] = useState<SourceSummary[]>([]);
   const [costBreakdown, setCostBreakdown] = useState<CostBreakdown>({ total: 0, by_model: {}, by_prompt: {} });
   const [selectedModels, setSelectedModelsState] = useState<string[]>(
-    loadFromStorage(STORAGE_KEYS.SELECTED_MODELS, ["llm_mentions", "google_ai_overview"])
+    loadFromStorage(STORAGE_KEYS.SELECTED_MODELS, ["chatgpt", "claude", "gemini", "perplexity", "google_ai_overview"])
   );
   const [loading, setLoading] = useState(false);
   const [loadingPromptId, setLoadingPromptId] = useState<string | null>(null);

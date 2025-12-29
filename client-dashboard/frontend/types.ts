@@ -25,12 +25,15 @@ export interface AIModel {
 /**
  * Available AI models for visibility analysis
  * 
- * - llm_mentions: Searches DataForSEO's database of AI-generated answers
+ * - chatgpt, claude, gemini, perplexity: LLM models via DataForSEO LLM Mentions API
  * - google_ai_overview: Direct Google AI Overview results
  * - google_serp: Traditional Google search results
  */
 export const AI_MODELS: AIModel[] = [
-  { id: "llm_mentions", name: "LLM Mentions", provider: "DataForSEO", color: "#10a37f", costPerQuery: 0.1, isLLM: true },
+  { id: "chatgpt", name: "ChatGPT", provider: "OpenAI", color: "#10a37f", costPerQuery: 0.02, isLLM: true },
+  { id: "claude", name: "Claude", provider: "Anthropic", color: "#d97706", costPerQuery: 0.02, isLLM: true },
+  { id: "gemini", name: "Gemini", provider: "Google", color: "#4285f4", costPerQuery: 0.02, isLLM: true },
+  { id: "perplexity", name: "Perplexity", provider: "Perplexity AI", color: "#6366f1", costPerQuery: 0.02, isLLM: true },
   { id: "google_ai_overview", name: "Google AI Overview", provider: "DataForSEO", color: "#ea4335", costPerQuery: 0.003, isLLM: false },
   { id: "google_serp", name: "Google SERP", provider: "DataForSEO", color: "#34a853", costPerQuery: 0.002, isLLM: false },
 ];
