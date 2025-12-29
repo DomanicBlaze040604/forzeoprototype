@@ -7,16 +7,22 @@
  * - Multi-format import (JSON, CSV, TXT)
  * - Cost tracking per search
  * - LocalStorage persistence
+ * - LLM Mentions API for AI visibility tracking
+ * 
+ * "Forzeo does not query LLMs. It monitors how LLMs already talk about you."
  */
 
 import { useState, useCallback, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
-// Available AI models
+// Available AI models - Using DataForSEO LLM Mentions API
 export const AI_MODELS = [
-  { id: "google_serp", name: "Google SERP", provider: "DataForSEO", color: "#4285f4", costPerQuery: 0.002 },
-  { id: "google_ai_overview", name: "Google AI Overview", provider: "DataForSEO", color: "#ea4335", costPerQuery: 0.003 },
-  { id: "groq_llama", name: "Groq Llama", provider: "Groq", color: "#f97316", costPerQuery: 0 },
+  // LLM Mentions - Searches DataForSEO's database of AI-generated answers
+  { id: "llm_mentions", name: "LLM Mentions", provider: "DataForSEO", color: "#10a37f", costPerQuery: 0.1, isLLM: true },
+  // Google AI Overview - Direct AI Overview results
+  { id: "google_ai_overview", name: "Google AI Overview", provider: "DataForSEO", color: "#ea4335", costPerQuery: 0.003, isLLM: false },
+  // Google SERP - Traditional search results
+  { id: "google_serp", name: "Google SERP", provider: "DataForSEO", color: "#34a853", costPerQuery: 0.002, isLLM: false },
 ];
 
 // Industry presets
@@ -55,10 +61,12 @@ export interface Client {
   id: string;
   name: string;
   brand_name: string;
+  brand_domain?: string;  // Domain for LLM Mentions API (e.g., "juleo.club")
   brand_tags: string[];
   slug: string;
   target_region: string;
   location_code: number;
+  location_name?: string;  // For LLM Mentions API (e.g., "India")
   industry: string;
   competitors: string[];
   logo_url?: string;
@@ -193,7 +201,7 @@ export function useClientDashboard() {
   const [sourceSummary, setSourceSummary] = useState<SourceSummary[]>([]);
   const [costBreakdown, setCostBreakdown] = useState<CostBreakdown>({ total: 0, by_model: {}, by_prompt: {} });
   const [selectedModels, setSelectedModelsState] = useState<string[]>(
-    loadFromStorage(STORAGE_KEYS.SELECTED_MODELS, ["google_serp", "google_ai_overview", "groq_llama"])
+    loadFromStorage(STORAGE_KEYS.SELECTED_MODELS, ["llm_mentions", "google_ai_overview"])
   );
   const [loading, setLoading] = useState(false);
   const [loadingPromptId, setLoadingPromptId] = useState<string | null>(null);
@@ -213,29 +221,29 @@ export function useClientDashboard() {
     if (storedClients.length === 0) {
       const defaultClients: Client[] = [
         { 
-          id: "1", name: "Juleo Club", brand_name: "Juleo", slug: "juleo", 
-          target_region: "India", location_code: 2356, industry: "Dating/Matrimony", 
+          id: "1", name: "Juleo Club", brand_name: "Juleo", brand_domain: "juleo.club", slug: "juleo", 
+          target_region: "India", location_code: 2356, location_name: "India", industry: "Dating/Matrimony", 
           primary_color: "#ec4899", created_at: new Date().toISOString(), is_default: true,
           brand_tags: ["Juleo Club", "Trusted Singles Club", "juleo.club"],
           competitors: ["Bumble", "Hinge", "Tinder", "Shaadi", "Aisle", "OkCupid"]
         },
         { 
-          id: "2", name: "Jagota", brand_name: "Jagota", slug: "jagota", 
-          target_region: "Thailand", location_code: 2764, industry: "Food/Beverage", 
+          id: "2", name: "Jagota", brand_name: "Jagota", brand_domain: "jagota.com", slug: "jagota", 
+          target_region: "Thailand", location_code: 2764, location_name: "Thailand", industry: "Food/Beverage", 
           primary_color: "#f59e0b", created_at: new Date().toISOString(), is_default: true,
           brand_tags: ["Jagota Brothers", "Jagota Group"],
           competitors: ["Sysco", "US Foods", "Makro", "Metro", "CP Foods"]
         },
         { 
-          id: "3", name: "Post House Dental", brand_name: "Post House Dental", slug: "post-house-dental", 
-          target_region: "Surrey, UK", location_code: 2826, industry: "Healthcare/Dental", 
+          id: "3", name: "Post House Dental", brand_name: "Post House Dental", brand_domain: "posthousedental.co.uk", slug: "post-house-dental", 
+          target_region: "Surrey, UK", location_code: 2826, location_name: "United Kingdom", industry: "Healthcare/Dental", 
           primary_color: "#06b6d4", created_at: new Date().toISOString(), is_default: true,
           brand_tags: ["Post House", "PHD Surrey"],
           competitors: ["Bupa Dental", "MyDentist", "Dental Care", "Smile Direct"]
         },
         { 
-          id: "4", name: "Shoptheyn", brand_name: "Shoptheyn", slug: "shoptheyn", 
-          target_region: "India", location_code: 2356, industry: "E-commerce/Fashion", 
+          id: "4", name: "Shoptheyn", brand_name: "Shoptheyn", brand_domain: "shoptheyn.com", slug: "shoptheyn", 
+          target_region: "India", location_code: 2356, location_name: "India", industry: "E-commerce/Fashion", 
           primary_color: "#8b5cf6", created_at: new Date().toISOString(), is_default: true,
           brand_tags: ["Shop Theyn", "Theyn Fashion"],
           competitors: ["Myntra", "Ajio", "Amazon Fashion", "Meesho", "Nykaa"]
@@ -408,9 +416,11 @@ export function useClientDashboard() {
           prompt_id: promptId,
           prompt_text: promptText,
           brand_name: selectedClient.brand_name,
+          brand_domain: selectedClient.brand_domain,  // For LLM Mentions API
           brand_tags: selectedClient.brand_tags,
           competitors: selectedClient.competitors,
           location_code: selectedClient.location_code,
+          location_name: selectedClient.location_name || selectedClient.target_region,  // For LLM Mentions API
           models: selectedModels,
         },
       });
@@ -467,9 +477,11 @@ export function useClientDashboard() {
             prompt_id: prompt.id,
             prompt_text: prompt.prompt_text,
             brand_name: selectedClient.brand_name,
+            brand_domain: selectedClient.brand_domain,  // For LLM Mentions API
             brand_tags: selectedClient.brand_tags,
             competitors: selectedClient.competitors,
             location_code: selectedClient.location_code,
+            location_name: selectedClient.location_name || selectedClient.target_region,  // For LLM Mentions API
             models: selectedModels,
           },
         });

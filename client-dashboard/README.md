@@ -1,6 +1,8 @@
 # Forzeo Client Dashboard - AI Visibility Analytics
 
-A production-ready multi-tenant SaaS dashboard for tracking brand visibility across AI search engines (ChatGPT, Google AI Overview, Perplexity, etc.).
+A production-ready multi-tenant SaaS dashboard for tracking brand visibility across AI search engines.
+
+> "Forzeo does not query LLMs. It monitors how LLMs already talk about you."
 
 ## 🎯 What This Does
 
@@ -9,10 +11,11 @@ This dashboard helps brands understand how visible they are when users ask AI as
 - "Top dental clinics in Surrey UK"
 - "Affordable fashion stores online"
 
-It queries multiple AI models and analyzes:
+It uses DataForSEO's LLM Mentions API to search their database of AI-generated answers and analyze:
 - **Share of Voice (SOV)** - % of responses mentioning your brand
+- **Visibility Score** - Weighted score based on mentions + citations
+- **Trust Index** - Citation authority vs mere mentions
 - **Rank Position** - Where your brand appears in AI-generated lists
-- **Citations** - Which sources AI models reference
 - **Competitor Analysis** - How competitors compare
 
 ## 📁 Project Structure
@@ -21,7 +24,7 @@ It queries multiple AI models and analyzes:
 client-dashboard/
 ├── README.md                    # This file
 ├── SETUP.md                     # Detailed setup instructions
-├── ARCHITECTURE.md              # System architecture & data flow
+├── ARCHITECTURE.md              # System architecture & scoring formulas
 │
 ├── frontend/                    # React + TypeScript frontend
 │   ├── ClientDashboard.tsx      # Main dashboard component
@@ -30,7 +33,7 @@ client-dashboard/
 │
 ├── backend/                     # Supabase Edge Functions
 │   ├── geo-audit/
-│   │   └── index.ts             # Main API endpoint
+│   │   └── index.ts             # Main API endpoint (LLM Mentions + SERP)
 │   └── generate-content/
 │       └── index.ts             # Content generation API
 │
@@ -43,152 +46,102 @@ client-dashboard/
 ### Prerequisites
 - Node.js 18+
 - Supabase account (free tier works)
-- DataForSEO account (for AI search data)
-- Groq account (free - for AI responses)
+- DataForSEO account (for LLM Mentions API)
 
 ### 1. Clone & Install
 ```bash
-# Copy these files to your React project
-cp -r client-dashboard/frontend/* src/
-cp -r client-dashboard/backend/* supabase/functions/
+npm install
 ```
 
-### 2. Environment Variables
+### 2. Set Environment Variables
 ```bash
-# In Supabase Dashboard → Settings → Edge Functions → Secrets
-DATAFORSEO_LOGIN=your-email@example.com
-DATAFORSEO_PASSWORD=your-password
-GROQ_API_KEY=your-groq-key  # Free at console.groq.com
+cp .env.example .env
+# Edit .env with your credentials
 ```
 
-### 3. Deploy Backend
+### 3. Deploy Supabase Functions
 ```bash
-npx supabase functions deploy geo-audit --no-verify-jwt
-npx supabase functions deploy generate-content --no-verify-jwt
+npx supabase functions deploy geo-audit --project-ref YOUR_PROJECT_REF
 ```
 
-### 4. Run Frontend
+### 4. Start Development Server
 ```bash
 npm run dev
-# Visit http://localhost:5173/clients
+# Open http://localhost:8082/clients
 ```
 
-## 💰 API Costs
+## 🔌 Available AI Models
 
-| Service | Cost | Free Tier |
-|---------|------|-----------|
-| DataForSEO SERP | ~$0.002/query | $1 credit on signup |
-| DataForSEO AI Overview | ~$0.003/query | Included |
-| Groq (Llama 3.1) | Free | 14,400 req/day |
+| Model ID | Name | Description | Cost/Query |
+|----------|------|-------------|------------|
+| `llm_mentions` | LLM Mentions | Searches DataForSEO's AI answer database | $0.10 |
+| `google_ai_overview` | Google AI Overview | Direct Google AI Overview results | $0.003 |
+| `google_serp` | Google SERP | Traditional search results | $0.002 |
 
-**Typical audit cost**: ~$0.005 per prompt (3 models)
-
-## 🔑 Key Features
-
-### Multi-Tenant Client Management
-- Add/edit/delete clients
-- Industry presets with default competitors
-- Per-client data isolation via localStorage
-
-### Unlimited Prompts
-- Add single or bulk prompts
-- Import from JSON, CSV, or plain text
-- AI-powered prompt generation from keywords
-
-### Real-Time Analysis
-- Query 3 AI models simultaneously
-- Live progress tracking
-- Per-prompt cost display
-
-### Comprehensive Reports
-- Export as formatted text document
-- CSV export for spreadsheets
-- Full citation list with URLs
-
-### Content Generation
-- Generate GEO-optimized content
-- Multiple content types (article, listicle, guide, FAQ)
-- Copy/download generated content
-
-## 📊 Data Flow
-
-```
-User clicks "Run Audit"
-        ↓
-Frontend calls geo-audit Edge Function
-        ↓
-Edge Function queries:
-  ├── DataForSEO SERP API (Google results)
-  ├── DataForSEO AI Overview API
-  └── Groq Llama 3.1 API
-        ↓
-Responses parsed for:
-  ├── Brand mentions & sentiment
-  ├── Competitor mentions
-  ├── Rank in lists
-  └── Citation URLs
-        ↓
-Results returned to frontend
-        ↓
-Saved to localStorage (per-client)
-        ↓
-Dashboard updated with metrics
-```
-
-## 📈 Scoring Formulas
+## 📊 Key Metrics
 
 ### Share of Voice (SOV)
 ```
-SOV = (Models mentioning brand / Total models) × 100
-
-Example: 2 out of 3 models mention brand → SOV = 67%
+SOV = (Models where brand mentioned / Total successful models) × 100
 ```
 
-| SOV Range | Interpretation |
-|-----------|----------------|
-| 70-100% | Excellent - Brand dominates |
-| 50-69% | Good - Appears in most responses |
-| 25-49% | Moderate - Room for improvement |
-| 0-24% | Low - Urgent optimization needed |
+### Visibility Score
+Weighted score based on:
+- Mentioned = 50 points
+- Cited (linked) = 100 points
+- Rank bonus = up to 30 points
+- Mention count bonus = up to 20 points
 
-### Brand Rank
+### Trust Index
 ```
-Detected from numbered lists in AI responses:
-"1. Bumble" → Rank 1
-"2. Juleo" → Rank 2
-"3. Tinder" → Rank 3
-
-Average Rank = Sum of ranks / Models with rank
+Trust = (Citation Rate × 0.6) + (Authority Rate × 0.4)
 ```
 
-### Sentiment Analysis
+## 🏢 Pilot Clients
+
+1. **Juleo Club** (India, location_code: 2356) - Dating/Matrimony
+2. **Jagota** (Thailand, location_code: 2764) - Food/Beverage  
+3. **Post House Dental** (Surrey UK, location_code: 2826) - Healthcare
+4. **Shoptheyn** (India, location_code: 2356) - E-commerce/Fashion
+
+## 📖 Documentation
+
+- [SETUP.md](./SETUP.md) - Detailed setup instructions & metrics interpretation
+- [ARCHITECTURE.md](./ARCHITECTURE.md) - Technical documentation & scoring formulas
+
+## 🔗 API Endpoint
+
+### GEO Audit
+```bash
+POST /functions/v1/geo-audit
+Content-Type: application/json
+
+{
+  "prompt_text": "best dating apps in India 2025",
+  "brand_name": "Juleo",
+  "brand_domain": "juleo.club",
+  "brand_tags": ["Juleo Club"],
+  "competitors": ["Bumble", "Hinge", "Tinder"],
+  "location_code": 2356,
+  "models": ["llm_mentions", "google_ai_overview"]
+}
 ```
-Positive: "best", "top", "recommended", "trusted", "reliable"
-Negative: "avoid", "poor", "worst", "scam", "issues"
 
-Context: 100 chars before/after brand mention
+### Response
+```json
+{
+  "success": true,
+  "data": {
+    "summary": {
+      "share_of_voice": 50,
+      "visibility_score": 75,
+      "trust_index": 60,
+      "average_rank": 2.5,
+      "total_cost": 0.103
+    },
+    "model_results": [...],
+    "top_sources": [...],
+    "top_competitors": [...]
+  }
+}
 ```
-
-### Winner Detection
-```
-1. Rank #1 always wins
-2. Otherwise: Most mentions wins
-3. Tie-breaker: Better rank wins
-```
-
-See `ARCHITECTURE.md` for complete algorithm documentation.
-
-## 🛠 Tech Stack
-
-- **Frontend**: React 18, TypeScript, Tailwind CSS, shadcn/ui
-- **Backend**: Supabase Edge Functions (Deno)
-- **APIs**: DataForSEO, Groq
-- **Storage**: localStorage (can upgrade to Supabase DB)
-
-## 📝 License
-
-MIT - Use freely for commercial projects.
-
-## 🤝 Support
-
-For questions or issues, check ARCHITECTURE.md for detailed technical documentation.

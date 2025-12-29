@@ -2,6 +2,8 @@
  * Forzeo Client Dashboard - TypeScript Types
  * 
  * All interfaces and types used across the dashboard.
+ * 
+ * "Forzeo does not query LLMs. It monitors how LLMs already talk about you."
  */
 
 // ============================================
@@ -12,20 +14,25 @@
  * Configuration for an AI model that can be queried
  */
 export interface AIModel {
-  id: string;           // Unique identifier (e.g., "google_serp")
-  name: string;         // Display name (e.g., "Google SERP")
+  id: string;           // Unique identifier (e.g., "llm_mentions")
+  name: string;         // Display name (e.g., "LLM Mentions")
   provider: string;     // API provider (e.g., "DataForSEO")
   color: string;        // UI color for charts/badges
   costPerQuery: number; // Cost in USD per query
+  isLLM?: boolean;      // Whether this is an LLM-based model
 }
 
 /**
  * Available AI models for visibility analysis
+ * 
+ * - llm_mentions: Searches DataForSEO's database of AI-generated answers
+ * - google_ai_overview: Direct Google AI Overview results
+ * - google_serp: Traditional Google search results
  */
 export const AI_MODELS: AIModel[] = [
-  { id: "google_serp", name: "Google SERP", provider: "DataForSEO", color: "#4285f4", costPerQuery: 0.002 },
-  { id: "google_ai_overview", name: "Google AI Overview", provider: "DataForSEO", color: "#ea4335", costPerQuery: 0.003 },
-  { id: "groq_llama", name: "Groq Llama", provider: "Groq", color: "#f97316", costPerQuery: 0 },
+  { id: "llm_mentions", name: "LLM Mentions", provider: "DataForSEO", color: "#10a37f", costPerQuery: 0.1, isLLM: true },
+  { id: "google_ai_overview", name: "Google AI Overview", provider: "DataForSEO", color: "#ea4335", costPerQuery: 0.003, isLLM: false },
+  { id: "google_serp", name: "Google SERP", provider: "DataForSEO", color: "#34a853", costPerQuery: 0.002, isLLM: false },
 ];
 
 // ============================================
@@ -39,10 +46,12 @@ export interface Client {
   id: string;
   name: string;              // Display name (e.g., "Juleo Club")
   brand_name: string;        // Primary brand to detect (e.g., "Juleo")
+  brand_domain?: string;     // Domain for LLM Mentions API (e.g., "juleo.club")
   brand_tags: string[];      // Alternative names to detect
   slug: string;              // URL-safe identifier
   target_region: string;     // Geographic target (e.g., "India")
   location_code: number;     // DataForSEO location code
+  location_name?: string;    // Location name for LLM Mentions API (e.g., "India")
   industry: string;          // Industry category
   competitors: string[];     // Competitor brand names
   logo_url?: string;         // Optional logo URL

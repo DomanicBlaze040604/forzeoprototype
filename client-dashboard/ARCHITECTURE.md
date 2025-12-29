@@ -2,6 +2,46 @@
 
 Technical documentation explaining how the system works.
 
+> "Forzeo does not query LLMs. It monitors how LLMs already talk about you."
+
+## API Integration
+
+### DataForSEO LLM Mentions API
+
+The primary API for tracking AI visibility. This searches DataForSEO's database of AI-generated answers to find brand mentions.
+
+**Endpoint:** `POST /v3/ai_optimization/llm_mentions/search/live`
+
+**Request Structure:**
+```json
+{
+  "language_name": "English",
+  "location_code": 2356,
+  "target": [
+    {
+      "keyword": "best dating apps in India",
+      "search_scope": ["answer"]
+    }
+  ],
+  "platform": "google",
+  "limit": 5
+}
+```
+
+**Response Fields:**
+- `question`: The query that triggered the AI response
+- `answer`: The AI-generated answer text
+- `sources`: Array of cited sources with URLs
+- `ai_search_volume`: Estimated monthly AI search volume
+
+### Available Models
+
+| Model ID | Name | Description | Cost |
+|----------|------|-------------|------|
+| `llm_mentions` | LLM Mentions | Searches AI answer database | $0.10/query |
+| `google_ai_overview` | Google AI Overview | Direct AI Overview results | $0.003/query |
+| `google_serp` | Google SERP | Traditional search results | $0.002/query |
+
 ## Scoring Formulas & Algorithms
 
 This section explains all the visibility metrics, ranking logic, and formulas used in the dashboard.
@@ -14,11 +54,10 @@ The primary metric measuring brand visibility across AI models.
 SOV = (Models where brand mentioned / Total successful models) × 100
 
 Example:
-- Google SERP: Brand mentioned ✓
+- LLM Mentions: Brand mentioned ✓
 - Google AI Overview: Brand NOT mentioned ✗
-- Groq Llama: Brand mentioned ✓
 
-SOV = (2 / 3) × 100 = 67%
+SOV = (1 / 2) × 100 = 50%
 ```
 
 **Interpretation:**
@@ -26,6 +65,64 @@ SOV = (2 / 3) × 100 = 67%
 - 50-69%: Good visibility - brand appears in most responses
 - 25-49%: Moderate visibility - room for improvement
 - 0-24%: Low visibility - urgent optimization needed
+
+### AI Visibility Score
+
+Weighted score based on mentions and citations.
+
+```javascript
+function calculateVisibilityScore(results) {
+  let weightedSum = 0;
+  let totalWeight = 0;
+  
+  for (const result of results) {
+    if (!result.success) continue;
+    
+    const weight = result.weight || 1.0;
+    totalWeight += weight;
+    
+    let score = 0;
+    if (result.brand_mentioned) {
+      score = result.is_cited ? 100 : 50;  // Cited = 100, Mentioned = 50
+      if (result.brand_rank) {
+        score += Math.max(0, 30 - (result.brand_rank - 1) * 10);  // Rank bonus
+      }
+      score += Math.min(20, result.brand_mention_count * 5);  // Mention count bonus
+    }
+    
+    weightedSum += score * weight;
+  }
+  
+  return totalWeight > 0 ? Math.round(weightedSum / totalWeight) : 0;
+}
+```
+
+### AI Trust Index
+
+Measures citation authority vs mere mentions.
+
+```javascript
+function calculateTrustIndex(results) {
+  let citedCount = 0;
+  let authorityCount = 0;
+  let total = 0;
+  
+  for (const result of results) {
+    if (!result.success) continue;
+    total++;
+    if (result.is_cited) citedCount++;
+    if (result.authority_type === "authority") authorityCount++;
+  }
+  
+  if (total === 0) return 0;
+  
+  // Trust = 60% citation rate + 40% authority rate
+  const citationRate = (citedCount / total) * 100;
+  const authorityRate = (authorityCount / total) * 100;
+  
+  return Math.round(citationRate * 0.6 + authorityRate * 0.4);
+}
+```
 
 ### Brand Rank Detection
 
@@ -58,9 +155,8 @@ const patterns = [
 Average Rank = Sum of all ranks / Number of models with rank
 
 Example:
-- Google SERP: Rank #2
+- LLM Mentions: Rank #2
 - Google AI Overview: Rank #3
-- Groq Llama: No rank (not counted)
 
 Average Rank = (2 + 3) / 2 = 2.5
 ```

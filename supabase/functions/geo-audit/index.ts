@@ -1,12 +1,13 @@
 // @ts-nocheck
 /**
- * Forzeo GEO Audit API - Production Ready
+ * Forzeo GEO Audit API - Production Ready with LLM Mentions
  * 
- * Uses DataForSEO's working endpoints:
- * - SERP Google Organic (with AI Overview)
- * - Groq for AI-generated responses
+ * Uses DataForSEO's LLM Mentions API to track AI visibility:
+ * - LLM Mentions Search: Finds how brands are mentioned in AI answers
+ * - Google AI Overview: Direct AI Overview results
+ * - Google SERP: Traditional search results
  * 
- * Supports multiple "virtual" models by querying different sources
+ * "Forzeo does not query LLMs. It monitors how LLMs already talk about you."
  */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -19,20 +20,27 @@ const corsHeaders = {
 };
 
 const DATAFORSEO_API = "https://api.dataforseo.com/v3";
-const DATAFORSEO_LOGIN = Deno.env.get("DATAFORSEO_LOGIN") || "contact@forzeo.com";
-const DATAFORSEO_PASSWORD = Deno.env.get("DATAFORSEO_PASSWORD") || "b00e21651e";
-const DATAFORSEO_AUTH = Deno.env.get("DATAFORSEO_AUTH") || btoa(`${DATAFORSEO_LOGIN}:${DATAFORSEO_PASSWORD}`);
+const DATAFORSEO_LOGIN = Deno.env.get("DATAFORSEO_LOGIN") || "";
+const DATAFORSEO_PASSWORD = Deno.env.get("DATAFORSEO_PASSWORD") || "";
+const DATAFORSEO_AUTH = btoa(`${DATAFORSEO_LOGIN}:${DATAFORSEO_PASSWORD}`);
 
-const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const SUPABASE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 
-// Model configurations - what we actually query
-const MODEL_CONFIGS = {
-  google_serp: { name: "Google SERP", color: "#4285f4", provider: "DataForSEO" },
-  google_ai_overview: { name: "Google AI Overview", color: "#ea4335", provider: "DataForSEO" },
-  groq_llama: { name: "Groq Llama", color: "#f97316", provider: "Groq" },
+// ============================================
+// MODEL CONFIGURATIONS
+// ============================================
+
+// Models available for querying
+const AI_MODELS = {
+  llm_mentions: { name: "LLM Mentions", color: "#10a37f", provider: "DataForSEO", weight: 1.0, costPerQuery: 0.1 },
+  google_ai_overview: { name: "Google AI Overview", color: "#ea4335", provider: "DataForSEO", weight: 0.9, costPerQuery: 0.003 },
+  google_serp: { name: "Google SERP", color: "#4285f4", provider: "DataForSEO", weight: 0.7, costPerQuery: 0.002 },
 };
+
+// ============================================
+// TYPE DEFINITIONS
+// ============================================
 
 interface Citation {
   url: string;
@@ -46,7 +54,8 @@ interface ModelResult {
   model: string;
   model_name: string;
   provider: string;
-  color: string;
+  color?: string;
+  weight: number;
   success: boolean;
   error?: string;
   raw_response: string;
@@ -61,229 +70,15 @@ interface ModelResult {
   citations: Citation[];
   citation_count: number;
   api_cost: number;
+  is_cited: boolean;
+  authority_type?: string;
+  ai_search_volume?: number;
 }
 
-// DataForSEO API call
-async function callDataForSEO(endpoint: string, body: any): Promise<any> {
-  console.log(`[DataForSEO] POST ${endpoint}`);
-  
-  try {
-    const response = await fetch(`${DATAFORSEO_API}${endpoint}`, {
-      method: "POST",
-      headers: {
-        "Authorization": `Basic ${DATAFORSEO_AUTH}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
-    
-    const text = await response.text();
-    
-    if (!response.ok) {
-      console.error(`[DataForSEO] HTTP ${response.status}: ${text.substring(0, 200)}`);
-      return { error: `HTTP ${response.status}`, status_code: response.status };
-    }
-    
-    const data = JSON.parse(text);
-    
-    if (data.status_code !== 20000) {
-      console.error(`[DataForSEO] API Error: ${data.status_message}`);
-      return { error: data.status_message, status_code: data.status_code };
-    }
-    
-    return data;
-  } catch (err) {
-    console.error(`[DataForSEO] Exception: ${err}`);
-    return { error: String(err) };
-  }
-}
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
 
-// Get Google SERP results
-async function getGoogleSERP(prompt: string, locationCode: number): Promise<{
-  success: boolean;
-  response: string;
-  citations: Citation[];
-  featuredSnippet: string;
-  peopleAlsoAsk: string[];
-  cost: number;
-  error?: string;
-}> {
-  console.log("[Google SERP] Querying...");
-  
-  const data = await callDataForSEO("/serp/google/organic/live/advanced", [{
-    keyword: prompt,
-    location_code: locationCode,
-    language_code: "en",
-    device: "desktop",
-    depth: 30,
-  }]);
-  
-  if (data.error) {
-    return { success: false, response: "", citations: [], featuredSnippet: "", peopleAlsoAsk: [], cost: 0, error: data.error };
-  }
-  
-  const task = data?.tasks?.[0];
-  const result = task?.result?.[0];
-  const cost = task?.cost || 0;
-  const items = result?.items || [];
-  
-  const parts: string[] = [];
-  const citations: Citation[] = [];
-  let featuredSnippet = "";
-  const peopleAlsoAsk: string[] = [];
-  
-  for (const item of items) {
-    if (item.type === "featured_snippet") {
-      featuredSnippet = item.description || item.title || "";
-      parts.push(`=== Featured Answer ===\n${featuredSnippet}`);
-      if (item.url) {
-        citations.push({
-          url: item.url,
-          title: item.title || "",
-          domain: item.domain || extractDomain(item.url),
-          position: 0,
-          snippet: item.description,
-        });
-      }
-    } else if (item.type === "organic") {
-      citations.push({
-        url: item.url,
-        title: item.title,
-        domain: item.domain,
-        position: item.rank_absolute,
-        snippet: item.description,
-      });
-    } else if (item.type === "people_also_ask" && item.items) {
-      for (const paa of item.items) {
-        peopleAlsoAsk.push(paa.title || "");
-        if (paa.expanded_element?.description) {
-          parts.push(`Q: ${paa.title}\nA: ${paa.expanded_element.description}`);
-        }
-      }
-    }
-  }
-  
-  // Build response from top results
-  parts.push("\n=== Top Search Results ===");
-  citations.slice(0, 10).forEach((c, i) => {
-    parts.push(`${i + 1}. ${c.title}\n   ${c.snippet || ""}`);
-  });
-  
-  const response = parts.join("\n\n").trim();
-  
-  console.log(`[Google SERP] Got ${response.length} chars, ${citations.length} citations, cost: ${cost}`);
-  
-  return { success: response.length > 0, response, citations, featuredSnippet, peopleAlsoAsk, cost };
-}
-
-// Get Google AI Overview
-async function getGoogleAIOverview(prompt: string, locationCode: number): Promise<{
-  success: boolean;
-  response: string;
-  citations: Citation[];
-  cost: number;
-  error?: string;
-}> {
-  console.log("[Google AI Overview] Querying...");
-  
-  const data = await callDataForSEO("/serp/google/ai_overview/live/advanced", [{
-    keyword: prompt,
-    location_code: locationCode,
-    language_code: "en",
-    device: "desktop",
-  }]);
-  
-  if (data.error) {
-    return { success: false, response: "", citations: [], cost: 0, error: data.error };
-  }
-  
-  const task = data?.tasks?.[0];
-  const result = task?.result?.[0];
-  const cost = task?.cost || 0;
-  const items = result?.items || [];
-  
-  let response = "";
-  const citations: Citation[] = [];
-  
-  for (const item of items) {
-    if (item.type === "ai_overview" && item.items) {
-      for (const subItem of item.items) {
-        if (subItem.text) response += subItem.text + "\n";
-        if (subItem.references) {
-          subItem.references.forEach((ref: any, idx: number) => {
-            citations.push({
-              url: ref.url || "",
-              title: ref.title || "",
-              domain: ref.domain || extractDomain(ref.url || ""),
-              position: idx + 1,
-              snippet: ref.snippet || "",
-            });
-          });
-        }
-      }
-    }
-  }
-  
-  response = response.trim();
-  
-  console.log(`[Google AI Overview] Got ${response.length} chars, ${citations.length} citations, cost: ${cost}`);
-  
-  return { success: response.length > 0, response, citations, cost };
-}
-
-// Get Groq Llama response
-async function getGroqResponse(prompt: string): Promise<{
-  success: boolean;
-  response: string;
-  error?: string;
-}> {
-  if (!GROQ_API_KEY) {
-    return { success: false, response: "", error: "GROQ_API_KEY not configured" };
-  }
-  
-  console.log("[Groq Llama] Querying...");
-  
-  try {
-    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${GROQ_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "llama-3.1-8b-instant",
-        messages: [
-          {
-            role: "system",
-            content: `You are a helpful AI assistant providing recommendations. When asked:
-- Provide a numbered list of 5-10 specific options
-- Include brief explanations for each
-- Mention specific brands/products by name
-- Be balanced and informative
-- Include pros and cons where relevant`
-          },
-          { role: "user", content: prompt },
-        ],
-        temperature: 0.7,
-        max_tokens: 2048,
-      }),
-    });
-
-    if (!response.ok) {
-      return { success: false, response: "", error: `HTTP ${response.status}` };
-    }
-
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content || "";
-    
-    console.log(`[Groq Llama] Got ${content.length} chars`);
-    return { success: content.length > 0, response: content };
-  } catch (err) {
-    return { success: false, response: "", error: String(err) };
-  }
-}
-
-// Helper functions
 function extractDomain(url: string): string {
   try { return new URL(url).hostname.replace("www.", ""); } catch { return ""; }
 }
@@ -375,9 +170,304 @@ function findWinnerBrand(response: string, brandName: string, competitors: strin
   return winner;
 }
 
+// ============================================
+// DATAFORSEO API FUNCTIONS
+// ============================================
+
+/**
+ * Generic DataForSEO API call
+ */
+async function callDataForSEO(endpoint: string, body: any): Promise<any> {
+  console.log(`[DataForSEO] POST ${endpoint}`);
+  console.log(`[DataForSEO] Auth: ${DATAFORSEO_LOGIN ? "configured" : "MISSING"}`);
+  
+  try {
+    const response = await fetch(`${DATAFORSEO_API}${endpoint}`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Basic ${DATAFORSEO_AUTH}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+    
+    const text = await response.text();
+    
+    if (!response.ok) {
+      console.error(`[DataForSEO] HTTP ${response.status}: ${text.substring(0, 500)}`);
+      return { error: `HTTP ${response.status}`, status_code: response.status, raw: text };
+    }
+    
+    const data = JSON.parse(text);
+    
+    if (data.status_code !== 20000) {
+      console.error(`[DataForSEO] API Error: ${data.status_message}`);
+      return { error: data.status_message, status_code: data.status_code };
+    }
+    
+    return data;
+  } catch (err) {
+    console.error(`[DataForSEO] Exception: ${err}`);
+    return { error: String(err) };
+  }
+}
+
+
+/**
+ * LLM Mentions Search API - Find how brands are mentioned in AI answers
+ * 
+ * This is the core endpoint for AI visibility tracking.
+ * It searches DataForSEO's database of AI-generated answers to find mentions.
+ * 
+ * Endpoint: POST /v3/ai_optimization/llm_mentions/search/live
+ */
+async function getLLMMentions(
+  keyword: string,
+  targetDomain: string,
+  brandName: string,
+  brandTags: string[],
+  locationCode: number = 2840
+): Promise<{
+  success: boolean;
+  items: Array<{
+    question: string;
+    answer: string;
+    sources: Citation[];
+    ai_search_volume: number;
+    brand_mentioned: boolean;
+    brand_cited: boolean;
+    brand_mention_count: number;
+  }>;
+  cost: number;
+  error?: string;
+}> {
+  console.log(`[LLM Mentions] Searching: "${keyword}" | Domain: ${targetDomain} | Brand: ${brandName}`);
+  
+  // Build target array - just search for the keyword
+  // We'll check for brand mentions in the results ourselves
+  const targetArray: any[] = [
+    {
+      keyword: keyword,
+      search_scope: ["answer"]  // Search in AI answers
+    }
+  ];
+  
+  const requestBody = [{
+    language_name: "English",
+    location_code: locationCode,
+    target: targetArray,
+    platform: "google",
+    limit: 5,  // Reduced limit for faster response
+  }];
+  
+  console.log(`[LLM Mentions] Request:`, JSON.stringify(requestBody, null, 2));
+  
+  const data = await callDataForSEO("/ai_optimization/llm_mentions/search/live", requestBody);
+  
+  if (data.error) {
+    console.error(`[LLM Mentions] Error: ${data.error}`);
+    return { success: false, items: [], cost: 0, error: data.error };
+  }
+  
+  const task = data?.tasks?.[0];
+  const cost = task?.cost || 0;
+  const result = task?.result?.[0];
+  const rawItems = result?.items || [];
+  
+  console.log(`[LLM Mentions] Got ${rawItems.length} items, cost: $${cost}`);
+  
+  const items: Array<{
+    question: string;
+    answer: string;
+    sources: Citation[];
+    ai_search_volume: number;
+    brand_mentioned: boolean;
+    brand_cited: boolean;
+    brand_mention_count: number;
+  }> = [];
+  
+  const allTerms = [brandName, targetDomain, ...brandTags].filter(Boolean).map(t => t.toLowerCase());
+  
+  for (const item of rawItems) {
+    const answer = item.answer || "";
+    const answerLower = answer.toLowerCase();
+    
+    // Parse sources
+    const sources: Citation[] = (item.sources || []).map((s: any, idx: number) => ({
+      url: s.url || "",
+      title: s.title || "",
+      domain: (s.domain || "").replace("www.", ""),
+      position: s.position || idx + 1,
+      snippet: s.snippet || "",
+    }));
+    
+    // Check if brand is mentioned in the answer
+    let brandMentioned = false;
+    let brandMentionCount = 0;
+    for (const term of allTerms) {
+      if (!term) continue;
+      let idx = 0;
+      while ((idx = answerLower.indexOf(term, idx)) !== -1) {
+        brandMentioned = true;
+        brandMentionCount++;
+        idx++;
+      }
+    }
+    
+    // Check if brand is cited (appears in sources)
+    const brandCited = sources.some(s => 
+      allTerms.some(term => 
+        s.domain.toLowerCase().includes(term) || 
+        s.url.toLowerCase().includes(term)
+      )
+    );
+    
+    items.push({
+      question: item.question || keyword,
+      answer: answer,
+      sources: sources,
+      ai_search_volume: item.ai_search_volume || 0,
+      brand_mentioned: brandMentioned,
+      brand_cited: brandCited,
+      brand_mention_count: brandMentionCount,
+    });
+    
+    console.log(`[LLM Mentions] Q: "${(item.question || "").substring(0, 50)}..." | Mentioned: ${brandMentioned} | Cited: ${brandCited} | Volume: ${item.ai_search_volume}`);
+  }
+  
+  return { success: items.length > 0, items, cost };
+}
+
+/**
+ * Google SERP Organic Results
+ */
+async function getGoogleSERP(prompt: string, locationCode: number): Promise<{
+  success: boolean;
+  response: string;
+  citations: Citation[];
+  cost: number;
+  error?: string;
+}> {
+  console.log("[Google SERP] Querying...");
+  
+  const data = await callDataForSEO("/serp/google/organic/live/advanced", [{
+    keyword: prompt,
+    location_code: locationCode,
+    language_code: "en",
+    device: "desktop",
+    depth: 30,
+  }]);
+  
+  if (data.error) {
+    return { success: false, response: "", citations: [], cost: 0, error: data.error };
+  }
+  
+  const task = data?.tasks?.[0];
+  const result = task?.result?.[0];
+  const cost = task?.cost || 0;
+  const items = result?.items || [];
+  
+  const parts: string[] = [];
+  const citations: Citation[] = [];
+  
+  for (const item of items) {
+    if (item.type === "featured_snippet") {
+      parts.push(`=== Featured Answer ===\n${item.description || item.title || ""}`);
+      if (item.url) {
+        citations.push({
+          url: item.url,
+          title: item.title || "",
+          domain: item.domain || extractDomain(item.url),
+          position: 0,
+          snippet: item.description,
+        });
+      }
+    } else if (item.type === "organic") {
+      citations.push({
+        url: item.url,
+        title: item.title,
+        domain: item.domain,
+        position: item.rank_absolute,
+        snippet: item.description,
+      });
+    }
+  }
+  
+  parts.push("\n=== Top Search Results ===");
+  citations.slice(0, 10).forEach((c, i) => {
+    parts.push(`${i + 1}. ${c.title}\n   ${c.snippet || ""}`);
+  });
+  
+  const response = parts.join("\n\n").trim();
+  console.log(`[Google SERP] Got ${response.length} chars, ${citations.length} citations, cost: $${cost}`);
+  
+  return { success: response.length > 0, response, citations, cost };
+}
+
+/**
+ * Google AI Overview
+ */
+async function getGoogleAIOverview(prompt: string, locationCode: number): Promise<{
+  success: boolean;
+  response: string;
+  citations: Citation[];
+  cost: number;
+  error?: string;
+}> {
+  console.log("[Google AI Overview] Querying...");
+  
+  const data = await callDataForSEO("/serp/google/ai_overview/live/advanced", [{
+    keyword: prompt,
+    location_code: locationCode,
+    language_code: "en",
+    device: "desktop",
+  }]);
+  
+  if (data.error) {
+    return { success: false, response: "", citations: [], cost: 0, error: data.error };
+  }
+  
+  const task = data?.tasks?.[0];
+  const result = task?.result?.[0];
+  const cost = task?.cost || 0;
+  const items = result?.items || [];
+  
+  let response = "";
+  const citations: Citation[] = [];
+  
+  for (const item of items) {
+    if (item.type === "ai_overview" && item.items) {
+      for (const subItem of item.items) {
+        if (subItem.text) response += subItem.text + "\n";
+        if (subItem.references) {
+          subItem.references.forEach((ref: any, idx: number) => {
+            citations.push({
+              url: ref.url || "",
+              title: ref.title || "",
+              domain: ref.domain || extractDomain(ref.url || ""),
+              position: idx + 1,
+              snippet: ref.snippet || "",
+            });
+          });
+        }
+      }
+    }
+  }
+  
+  response = response.trim();
+  console.log(`[Google AI Overview] Got ${response.length} chars, ${citations.length} citations, cost: $${cost}`);
+  
+  return { success: response.length > 0, response, citations, cost };
+}
+
+
+// ============================================
+// RESULT CREATION
+// ============================================
+
 function createModelResult(
   modelId: string,
-  config: { name: string; color: string; provider: string },
+  config: { name: string; color: string; provider: string; weight: number },
   success: boolean,
   response: string,
   citations: Citation[],
@@ -385,35 +475,121 @@ function createModelResult(
   brandName: string,
   brandTags: string[],
   competitors: string[],
-  error?: string
+  error?: string,
+  extraData?: {
+    brand_mentioned?: boolean;
+    brand_mention_count?: number;
+    is_cited?: boolean;
+    ai_search_volume?: number;
+  }
 ): ModelResult {
-  const brandData = parseBrandData(response, brandName, brandTags);
-  const competitorData = parseCompetitors(response, competitors);
-  const winnerBrand = findWinnerBrand(response, brandName, competitors);
+  // Use provided data or parse from response
+  let brandMentioned = extraData?.brand_mentioned ?? false;
+  let brandMentionCount = extraData?.brand_mention_count ?? 0;
+  let isCited = extraData?.is_cited ?? false;
+  let matchedTerms: string[] = [];
+  let brandRank: number | null = null;
+  let brandSentiment: "positive" | "neutral" | "negative" = "neutral";
+  
+  if (!extraData && response) {
+    const brandData = parseBrandData(response, brandName, brandTags);
+    brandMentioned = brandData.mentioned;
+    brandMentionCount = brandData.count;
+    brandRank = brandData.rank;
+    brandSentiment = brandData.sentiment;
+    matchedTerms = brandData.matchedTerms;
+  }
+  
+  const competitorData = response ? parseCompetitors(response, competitors) : [];
+  const winnerBrand = response ? findWinnerBrand(response, brandName, competitors) : "";
+  
+  // Determine authority type
+  let authorityType = "mentioned";
+  if (isCited) {
+    authorityType = brandMentionCount > 2 ? "authority" : "alternative";
+  }
   
   return {
     model: modelId,
     model_name: config.name,
     provider: config.provider,
     color: config.color,
+    weight: config.weight,
     success,
     error,
     raw_response: response,
     response_length: response.length,
-    brand_mentioned: brandData.mentioned,
-    brand_mention_count: brandData.count,
-    brand_rank: brandData.rank,
-    brand_sentiment: brandData.sentiment,
-    matched_terms: brandData.matchedTerms,
+    brand_mentioned: brandMentioned,
+    brand_mention_count: brandMentionCount,
+    brand_rank: brandRank,
+    brand_sentiment: brandSentiment,
+    matched_terms: matchedTerms,
     winner_brand: winnerBrand,
     competitors_found: competitorData as any[],
     citations,
     citation_count: citations.length,
     api_cost: cost,
+    is_cited: isCited,
+    authority_type: authorityType,
+    ai_search_volume: extraData?.ai_search_volume,
   };
 }
 
-// Main handler
+/**
+ * Calculate AI Visibility Score (weighted)
+ */
+function calculateVisibilityScore(results: ModelResult[]): number {
+  let weightedSum = 0;
+  let totalWeight = 0;
+  
+  for (const result of results) {
+    if (!result.success) continue;
+    
+    const weight = result.weight || 1.0;
+    totalWeight += weight;
+    
+    let score = 0;
+    if (result.brand_mentioned) {
+      score = result.is_cited ? 100 : 50;
+      if (result.brand_rank) {
+        score += Math.max(0, 30 - (result.brand_rank - 1) * 10);
+      }
+      score += Math.min(20, result.brand_mention_count * 5);
+    }
+    
+    weightedSum += score * weight;
+  }
+  
+  return totalWeight > 0 ? Math.round(weightedSum / totalWeight) : 0;
+}
+
+/**
+ * Calculate AI Trust Index
+ */
+function calculateTrustIndex(results: ModelResult[]): number {
+  let citedCount = 0;
+  let authorityCount = 0;
+  let total = 0;
+  
+  for (const result of results) {
+    if (!result.success) continue;
+    total++;
+    if (result.is_cited) citedCount++;
+    if (result.authority_type === "authority") authorityCount++;
+  }
+  
+  if (total === 0) return 0;
+  
+  const citationRate = (citedCount / total) * 100;
+  const authorityRate = (authorityCount / total) * 100;
+  
+  return Math.round(citationRate * 0.6 + authorityRate * 0.4);
+}
+
+// ============================================
+// MAIN HANDLER
+// ============================================
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
@@ -428,8 +604,16 @@ serve(async (req) => {
   try {
     const body = await req.json();
     const { 
-      client_id, prompt_id, prompt_text, brand_name, brand_tags = [],
-      competitors = [], location_code = 2840, models = ["google_serp", "google_ai_overview", "groq_llama"],
+      client_id, 
+      prompt_id, 
+      prompt_text, 
+      brand_name, 
+      brand_domain,
+      brand_tags = [],
+      competitors = [], 
+      location_code = 2840,
+      location_name = "United States",
+      models = ["llm_mentions", "google_ai_overview"],
       save_to_db = false
     } = body;
 
@@ -439,40 +623,95 @@ serve(async (req) => {
       });
     }
 
-    console.log(`[GEO Audit] "${prompt_text.substring(0, 40)}..." | Brand: ${brand_name} | Models: ${models.join(", ")}`);
+    const targetDomain = brand_domain || "";
+    
+    console.log(`[GEO Audit] "${prompt_text.substring(0, 50)}..." | Brand: ${brand_name} | Domain: ${targetDomain}`);
+    console.log(`[GEO Audit] Models: ${models.join(", ")} | Location: ${location_code}`);
 
     const results: ModelResult[] = [];
     let totalCost = 0;
-
-    // Run all queries in parallel
     const promises: Promise<void>[] = [];
 
-    if (models.includes("google_serp")) {
+    // Query LLM Mentions API
+    if (models.includes("llm_mentions")) {
       promises.push((async () => {
-        const serpResult = await getGoogleSERP(prompt_text, location_code);
-        totalCost += serpResult.cost;
-        results.push(createModelResult(
-          "google_serp",
-          MODEL_CONFIGS.google_serp,
-          serpResult.success,
-          serpResult.response,
-          serpResult.citations,
-          serpResult.cost,
-          brand_name,
-          brand_tags,
-          competitors,
-          serpResult.error
-        ));
+        const llmResult = await getLLMMentions(
+          prompt_text, 
+          targetDomain, 
+          brand_name, 
+          brand_tags, 
+          location_code
+        );
+        totalCost += llmResult.cost;
+        
+        if (llmResult.success && llmResult.items.length > 0) {
+          // Aggregate results from all items
+          let totalMentions = 0;
+          let totalCited = false;
+          let totalVolume = 0;
+          const allCitations: Citation[] = [];
+          const allAnswers: string[] = [];
+          
+          for (const item of llmResult.items) {
+            if (item.brand_mentioned) totalMentions += item.brand_mention_count;
+            if (item.brand_cited) totalCited = true;
+            totalVolume += item.ai_search_volume;
+            allCitations.push(...item.sources);
+            allAnswers.push(`Q: ${item.question}\nA: ${item.answer}`);
+          }
+          
+          results.push(createModelResult(
+            "llm_mentions",
+            AI_MODELS.llm_mentions,
+            true,
+            allAnswers.join("\n\n---\n\n"),
+            allCitations,
+            llmResult.cost,
+            brand_name,
+            brand_tags,
+            competitors,
+            undefined,
+            {
+              brand_mentioned: totalMentions > 0,
+              brand_mention_count: totalMentions,
+              is_cited: totalCited,
+              ai_search_volume: totalVolume,
+            }
+          ));
+        } else {
+          results.push(createModelResult(
+            "llm_mentions",
+            AI_MODELS.llm_mentions,
+            false,
+            "",
+            [],
+            llmResult.cost,
+            brand_name,
+            brand_tags,
+            competitors,
+            llmResult.error || "No results found"
+          ));
+        }
       })());
     }
 
+    // Query Google AI Overview
     if (models.includes("google_ai_overview")) {
       promises.push((async () => {
         const aiResult = await getGoogleAIOverview(prompt_text, location_code);
         totalCost += aiResult.cost;
+        
+        const brandData = parseBrandData(aiResult.response, brand_name, brand_tags);
+        const isCited = aiResult.citations.some(c => 
+          [brand_name, targetDomain, ...brand_tags].some(term => 
+            term && (c.domain.toLowerCase().includes(term.toLowerCase()) || 
+                    c.url.toLowerCase().includes(term.toLowerCase()))
+          )
+        );
+        
         results.push(createModelResult(
           "google_ai_overview",
-          MODEL_CONFIGS.google_ai_overview,
+          AI_MODELS.google_ai_overview,
           aiResult.success,
           aiResult.response,
           aiResult.citations,
@@ -480,41 +719,67 @@ serve(async (req) => {
           brand_name,
           brand_tags,
           competitors,
-          aiResult.error
+          aiResult.error,
+          {
+            brand_mentioned: brandData.mentioned,
+            brand_mention_count: brandData.count,
+            is_cited: isCited,
+          }
         ));
       })());
     }
 
-    if (models.includes("groq_llama")) {
+    // Query Google SERP
+    if (models.includes("google_serp")) {
       promises.push((async () => {
-        const groqResult = await getGroqResponse(prompt_text);
+        const serpResult = await getGoogleSERP(prompt_text, location_code);
+        totalCost += serpResult.cost;
+        
+        const brandData = parseBrandData(serpResult.response, brand_name, brand_tags);
+        const isCited = serpResult.citations.some(c => 
+          [brand_name, targetDomain, ...brand_tags].some(term => 
+            term && (c.domain.toLowerCase().includes(term.toLowerCase()) || 
+                    c.url.toLowerCase().includes(term.toLowerCase()))
+          )
+        );
+        
         results.push(createModelResult(
-          "groq_llama",
-          MODEL_CONFIGS.groq_llama,
-          groqResult.success,
-          groqResult.response,
-          [],
-          0,
+          "google_serp",
+          AI_MODELS.google_serp,
+          serpResult.success,
+          serpResult.response,
+          serpResult.citations,
+          serpResult.cost,
           brand_name,
           brand_tags,
           competitors,
-          groqResult.error
+          serpResult.error,
+          {
+            brand_mentioned: brandData.mentioned,
+            brand_mention_count: brandData.count,
+            is_cited: isCited,
+          }
         ));
       })());
     }
 
     await Promise.all(promises);
 
-    // Calculate summary
+    // Calculate metrics
     const successfulResults = results.filter(r => r.success);
     const visibleCount = successfulResults.filter(r => r.brand_mentioned).length;
+    const citedCount = successfulResults.filter(r => r.is_cited).length;
     const totalModels = successfulResults.length;
+    
     const shareOfVoice = totalModels > 0 ? Math.round((visibleCount / totalModels) * 100) : 0;
     
     const rankedResults = successfulResults.filter(r => r.brand_rank);
     const avgRank = rankedResults.length > 0
       ? Math.round((rankedResults.reduce((sum, r) => sum + r.brand_rank!, 0) / rankedResults.length) * 10) / 10
       : null;
+    
+    const visibilityScore = calculateVisibilityScore(results);
+    const trustIndex = calculateTrustIndex(results);
 
     // Aggregate citations and competitors
     const citationMap = new Map<string, { count: number; citation: Citation }>();
@@ -567,6 +832,8 @@ serve(async (req) => {
             model_results: results,
             share_of_voice: shareOfVoice,
             average_rank: avgRank,
+            visibility_score: visibilityScore,
+            trust_index: trustIndex,
             total_citations: successfulResults.reduce((sum, r) => sum + r.citation_count, 0),
             total_cost: totalCost,
             top_sources: topSources,
@@ -589,27 +856,31 @@ serve(async (req) => {
         prompt_id,
         prompt_text,
         brand_name,
+        brand_domain: targetDomain,
         brand_tags,
         competitors,
         models_requested: models,
         summary: {
           share_of_voice: shareOfVoice,
+          visibility_score: visibilityScore,
+          trust_index: trustIndex,
           average_rank: avgRank,
           total_models_checked: totalModels,
           models_failed: results.length - totalModels,
           visible_in: visibleCount,
+          cited_in: citedCount,
           total_citations: successfulResults.reduce((sum, r) => sum + r.citation_count, 0),
           total_cost: totalCost,
         },
         model_results: results,
         top_sources: topSources,
         top_competitors: topCompetitors,
-        available_models: Object.entries(MODEL_CONFIGS).map(([id, m]) => ({ id, ...m })),
+        available_models: Object.entries(AI_MODELS).map(([id, m]) => ({ id, ...m })),
         timestamp: new Date().toISOString(),
       },
     };
 
-    console.log(`[GEO Audit] Done. SOV: ${shareOfVoice}%, Models: ${totalModels}/${results.length}, Cost: ${totalCost.toFixed(4)}`);
+    console.log(`[GEO Audit] Done. SOV: ${shareOfVoice}%, Visibility: ${visibilityScore}, Trust: ${trustIndex}, Cost: $${totalCost.toFixed(4)}`);
 
     return new Response(JSON.stringify(responseData), {
       status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
