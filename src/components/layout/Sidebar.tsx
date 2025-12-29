@@ -19,7 +19,8 @@ import {
   Globe,
   FileText,
   Sparkles,
-  Target
+  Target,
+  Zap
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ForzeoLogo } from "@/components/ForzeoLogo";
@@ -39,6 +40,7 @@ const navSections: NavSection[] = [
   {
     items: [
       { icon: Home, label: "Dashboard", href: "/" },
+      { icon: Zap, label: "MVP Analysis", href: "/mvp" },
       { icon: Users, label: "Competitors", href: "/competitors" },
       { icon: Globe, label: "Sources", href: "/sources" },
       { icon: Search, label: "Prompts", href: "/search" },

@@ -22,6 +22,8 @@ import GapAnalysis from "./pages/GapAnalysis";
 import LLMTraffic from "./pages/LLMTraffic";
 import ContentGen from "./pages/ContentGen";
 import Competitors from "./pages/Competitors";
+import MVP from "./pages/MVP";
+import ClientDashboard from "./pages/ClientDashboard";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -93,6 +95,8 @@ const App = () => (
               <Route path="/gap-analysis" element={<ProtectedRoute><GapAnalysis /></ProtectedRoute>} />
               <Route path="/llm-traffic" element={<ProtectedRoute><LLMTraffic /></ProtectedRoute>} />
               <Route path="/content-gen" element={<ProtectedRoute><ContentGen /></ProtectedRoute>} />
+              <Route path="/mvp" element={<ProtectedRoute><MVP /></ProtectedRoute>} />
+              <Route path="/clients" element={<ClientDashboard />} />
               <Route path="/improve" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
               <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
               <Route path="*" element={<NotFound />} />
